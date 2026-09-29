@@ -26,6 +26,7 @@
 #include <nlohmann/json.hpp>
 
 #include "ggml.h"
+#include "TML_model.h"
 
 struct SafeTensorInfo {
     std::string name;
@@ -45,11 +46,33 @@ static ggml_type parse_ggml_type(const std::string& dtype) {
     throw std::runtime_error("Unsupported dtype: " + dtype);
 }
 
+struct BlockStats {
+    size_t total_params = 0;
+    double Frobenius_norm_sq = 0.0;
+    double mean = 0.0;
+};
+
+
 class TML_ggml {
 
 public:
-    TML_ggml() = default;
-    ~TML_ggml() = default;
+    TML_ggml() {
+        const ggml_init_params params = {
+            .mem_size = ggml_tensor_overhead() * tensors.size() + 1024 * 1024,
+            .mem_buffer = nullptr,
+            .no_alloc = true,
+        };
+
+        context_ = ggml_init(params);
+
+        if (!context_) {
+            throw std::runtime_error("Failed to initialize GGML context.");
+        }
+
+    }
+    ~TML_ggml() {
+        ggml_free(context_);
+    };
 
     void parse(const uint64_t header_size, const nlohmann::json& header_json) {
         const size_t offset_base = 8 + header_size;
@@ -69,35 +92,25 @@ public:
         std::cout << "Parsed " << tensors.size() << " tensors from header via mmap.\n";
     }
 
-    void print(uint8_t* mapped_data) {
-        // 5. Initialize GGML Context
-        const ggml_init_params params = {
-            /* .mem_size   = */ .mem_size = ggml_tensor_overhead() * tensors.size() + 1024 * 1024,
-            /* .mem_buffer = */ .mem_buffer = nullptr,
-            /* .no_alloc   = */ .no_alloc = true,
-        };
-
-        ggml_context* ctx = ggml_init(params);
-
+    void print(uint8_t* mapped_data) const {
         size_t max_name_len = 0;
         for (const auto& t : tensors) {
             max_name_len = std::max(max_name_len, t.name.length());
         }
 
-        // 6. Assign Mapped Pointers directly to GGML Tensors
         for (const auto& t_info : tensors) {
             const ggml_type type = parse_ggml_type(t_info.dtype);
             const unsigned long ndims = t_info.shape.size();
             ggml_tensor* gtensor = nullptr;
 
             if (ndims == 1) {
-                gtensor = ggml_new_tensor_1d(ctx, type, t_info.shape[0]);
+                gtensor = ggml_new_tensor_1d(context_, type, t_info.shape[0]);
             } else if (ndims == 2) {
-                gtensor = ggml_new_tensor_2d(ctx, type, t_info.shape[1], t_info.shape[0]);
+                gtensor = ggml_new_tensor_2d(context_, type, t_info.shape[1], t_info.shape[0]);
             } else if (ndims == 3) {
-                gtensor = ggml_new_tensor_3d(ctx, type, t_info.shape[2], t_info.shape[1], t_info.shape[0]);
+                gtensor = ggml_new_tensor_3d(context_, type, t_info.shape[2], t_info.shape[1], t_info.shape[0]);
             } else if (ndims == 4) {
-                gtensor = ggml_new_tensor_4d(ctx, type, t_info.shape[3], t_info.shape[2], t_info.shape[1], t_info.shape[0]);
+                gtensor = ggml_new_tensor_4d(context_, type, t_info.shape[3], t_info.shape[2], t_info.shape[1], t_info.shape[0]);
             } else {
                 std::printf("unknown ndims: %lu\n", ndims);
             }
@@ -115,14 +128,90 @@ public:
                             ggml_nbytes(gtensor));
             }
         }
-
-        // 7. Cleanup
-        // Free GGML context metadata (does not touch mmap memory)
-        ggml_free(ctx);
     }
+
+    void build_tree(uint8_t* mapped_data) {
+        if (tensors.empty()) return;
+
+        size_t max_name_len = 0;
+        for (const auto& t : tensors) {
+            max_name_len = std::max(max_name_len, t.name.length());
+        }
+
+        for (const auto& t_info : tensors) {
+            const ggml_type type = parse_ggml_type(t_info.dtype);
+            const size_t ndims = t_info.shape.size();
+            ggml_tensor* gtensor = nullptr;
+
+            // Note: GGML memory layout is column-major. SafeTensors/PyTorch shape array
+            // is row-major [dim_N-1, ..., dim_0], so dimensions are passed in reverse order.
+            if (ndims == 1) {
+                gtensor = ggml_new_tensor_1d(context_, type, t_info.shape[0]);
+            } else if (ndims == 2) {
+                gtensor = ggml_new_tensor_2d(context_, type, t_info.shape[1], t_info.shape[0]);
+            } else if (ndims == 3) {
+                gtensor = ggml_new_tensor_3d(context_, type, t_info.shape[2], t_info.shape[1], t_info.shape[0]);
+            } else if (ndims == 4) {
+                gtensor = ggml_new_tensor_4d(context_, type, t_info.shape[3], t_info.shape[2], t_info.shape[1], t_info.shape[0]);
+            } else {
+                std::cerr << "Warning: Skipping tensor " << t_info.name << " with unsupported ndims: " << ndims << "\n";
+                continue;
+            }
+
+            if (gtensor) {
+                // Set name identifier on GGML tensor metadata struct
+                ggml_set_name(gtensor, t_info.name.c_str());
+
+                // Zero-copy pointer mapping directly into mmap address offset
+                gtensor->data = mapped_data + t_info.data_begin;
+
+                // Insert into the hierarchical model tree
+                model_tree_.insert(t_info.name, gtensor);
+
+                std::printf("Mapped Tensor: %-*s | GGML Type: %-6s | Address: %18p | Bytes: %10zu\n",
+                            static_cast<int>(max_name_len + 1),
+                            gtensor->name,
+                            ggml_type_name(gtensor->type),
+                            gtensor->data,
+                            ggml_nbytes(gtensor));
+            }
+        }
+    }
+
+    BlockStats analyze_subblock(const TML_model_node* node) {
+        BlockStats stats;
+        std::vector<const ggml_tensor*> tensors;
+        node->collect_tensors(tensors);
+
+        for (const auto* t : tensors) {
+            size_t n_elements = ggml_nelements(t);
+            stats.total_params += n_elements;
+
+            // Perform statistical operations directly over mapped data pointers
+            if (t->type == GGML_TYPE_F32) {
+                const float* data = static_cast<const float*>(t->data);
+                for (size_t i = 0; i < n_elements; ++i) {
+                    float val = data[i];
+                    stats.mean += val;
+                    stats.Frobenius_norm_sq += val * val;
+                }
+            }
+            // Handle F16 / BF16 via GGML quantization/conversion helpers
+        }
+
+        if (stats.total_params > 0) {
+            stats.mean /= stats.total_params;
+        }
+        return stats;
+    }
+
+    [[nodiscard]] const TML_model_tree& get_tree() const noexcept { return model_tree_; }
+    [[nodiscard]] ggml_context* get_context() const noexcept { return context_; }
 
 private:
     std::vector<SafeTensorInfo> tensors;
+    TML_model_tree model_tree_;
+    ggml_context* context_;
 };
 
 #endif //TOYML_TML_GGML_H
