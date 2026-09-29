@@ -23,7 +23,7 @@ add_subdirectory(3rdParty/ggml EXCLUDE_FROM_ALL)
 # -----------------------------------------------------------------------------
 # 3. Define Your Target and Link GGML
 # -----------------------------------------------------------------------------
-add_executable(${PROJECT_NAME} main.cc)
+add_executable(${PROJECT_NAME} main.cc TML_memory.h TML_ggml.h)
 
 # Link the primary ggml target
 target_link_libraries(${PROJECT_NAME} PRIVATE ggml)
