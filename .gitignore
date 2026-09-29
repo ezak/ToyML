@@ -5,9 +5,6 @@ bin/
 obj/
 cmake-build-*/
 
-### Third Party Directory
-3rdParty/
-
 ### C++ template
 # Compiled Object files
 *.slo
