@@ -69,30 +69,99 @@ struct TML_window {
 
     }
 
-    static void render_list(const std::vector<SafeTensorInfo>& items) {
+    void render_list(const std::vector<SafeTensorInfo>& items) {
+    if (items.empty()) {
+        ImGui::Text("No tensors available.");
+        return;
+    }
 
-        static int item_selected_idx = 0; // Here we store our selected data as an index.
+    static int item_selected_idx = 0;
 
-        static bool item_highlight = false;
+    // Bounds safety
+    if (item_selected_idx >= static_cast<int>(items.size())) {
+        item_selected_idx = 0;
+    }
 
-        if (ImGui::BeginListBox("##listbox 2", ImVec2(-FLT_MIN, 10 * ImGui::GetTextLineHeightWithSpacing())))
-        {
-            for (int n = 0; n < items.size(); n++)
-            {
-                constexpr int item_highlighted_idx = -1;
-                const bool is_selected = (item_selected_idx == n);
-                const ImGuiSelectableFlags flags = (item_highlighted_idx == n) ? ImGuiSelectableFlags_Highlight : 0;
-                if (ImGui::Selectable(items.at(n).name.c_str(), is_selected, flags))
-                    item_selected_idx = n;
-
-                // Set the initial focus when opening the combo (scrolling + keyboard navigation focus)
-                if (is_selected)
-                    ImGui::SetItemDefaultFocus();
+    // ListBox for selecting tensors
+    if (ImGui::BeginListBox("##listbox_tensors", ImVec2(-FLT_MIN, 12 * ImGui::GetTextLineHeightWithSpacing()))) {
+        for (int n = 0; n < static_cast<int>(items.size()); n++) {
+            const bool is_selected = (item_selected_idx == n);
+            if (ImGui::Selectable(items[n].name.c_str(), is_selected)) {
+                item_selected_idx = n;
             }
-            ImGui::EndListBox();
+
+            if (is_selected) {
+                ImGui::SetItemDefaultFocus();
+            }
+        }
+        ImGui::EndListBox();
+    }
+
+    ImGui::Separator();
+
+    // Selected Tensor Metadata Display
+    const auto& selected = items.at(item_selected_idx);
+
+    ImGui::Text("Layer Name: %s", selected.name.c_str());
+    ImGui::Spacing();
+
+    // Key-Value Property Table using ImGui Tables
+    if (ImGui::BeginTable("TensorDetails", 2, ImGuiTableFlags_BordersOuter | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit)) {
+        ImGui::TableSetupColumn("Property", ImGuiTableColumnFlags_WidthFixed, 130.0f);
+        ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableHeadersRow();
+
+        // 1. Data Type
+        ImGui::TableNextRow();
+        ImGui::TableSetColumnIndex(0);
+        ImGui::TextUnformatted("Data Type (dtype)");
+        ImGui::TableSetColumnIndex(1);
+        ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "%s", selected.dtype.c_str());
+
+        // 2. Tensor Shape
+        ImGui::TableNextRow();
+        ImGui::TableSetColumnIndex(0);
+        ImGui::TextUnformatted("Shape");
+        ImGui::TableSetColumnIndex(1);
+        std::string shape_str = "[";
+        for (size_t i = 0; i < selected.shape.size(); ++i) {
+            shape_str += std::to_string(selected.shape[i]);
+            if (i + 1 < selected.shape.size()) shape_str += ", ";
+        }
+        shape_str += "]";
+        ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "%s", shape_str.c_str());
+
+        // 3. Total Element Count
+        ImGui::TableNextRow();
+        ImGui::TableSetColumnIndex(0);
+        ImGui::TextUnformatted("Total Elements");
+        ImGui::TableSetColumnIndex(1);
+        ImGui::Text("%zu", selected.num_elements());
+
+        // 4. Memory Size
+        ImGui::TableNextRow();
+        ImGui::TableSetColumnIndex(0);
+        ImGui::TextUnformatted("Memory Size");
+        ImGui::TableSetColumnIndex(1);
+        const double bytes = static_cast<double>(selected.byte_length());
+        if (bytes >= 1024.0 * 1024.0) {
+            ImGui::Text("%.2f MB (%zu bytes)", bytes / (1024.0 * 1024.0), selected.byte_length());
+        } else if (bytes >= 1024.0) {
+            ImGui::Text("%.2f KB (%zu bytes)", bytes / 1024.0, selected.byte_length());
+        } else {
+            ImGui::Text("%zu bytes", selected.byte_length());
         }
 
+        // 5. File Offsets
+        ImGui::TableNextRow();
+        ImGui::TableSetColumnIndex(0);
+        ImGui::TextUnformatted("File Offsets");
+        ImGui::TableSetColumnIndex(1);
+        ImGui::Text("0x%zx -> 0x%zx", selected.data_begin, selected.data_end);
+
+        ImGui::EndTable();
     }
+}
 
 
     TML_window() = default;
