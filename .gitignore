@@ -83,3 +83,6 @@ fabric.properties
 
 # Local Config file
 imgui.ini
+
+# ignore userspecific configurations
+.idea/
