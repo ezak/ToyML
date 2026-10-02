@@ -28,7 +28,7 @@ int main(const int argc, char **argv) {
     // 4. Parse JSON Header directly from mapped memory (Zero allocation string copies)
     const uint8_t *start = tml_memory->mapped_data + 8;
     const uint8_t *end = start + tml_memory->header_size;
-    nlohmann::json header_json = nlohmann::json::parse(start, end);
+    const nlohmann::json header_json = nlohmann::json::parse(start, end);
 
     const auto tml_ggml = std::make_unique<TML_ggml>();
     tml_ggml->parse(tml_memory->header_size, header_json);
