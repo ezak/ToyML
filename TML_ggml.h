@@ -33,6 +33,22 @@ struct SafeTensorInfo {
     std::vector<int64_t> shape;
     size_t data_begin{};
     size_t data_end{};
+
+    // Returns total number of elements (e.g., [4096, 4096] -> 16,777,216)
+    [[nodiscard]] size_t num_elements() const {
+        if (shape.empty()) return 0;
+        return std::accumulate(shape.begin(), shape.end(), 1ULL, std::multiplies<size_t>());
+    }
+
+    // Byte length declared by offsets
+    [[nodiscard]] size_t byte_length() const {
+        return data_end - data_begin;
+    }
+
+    // Absolute byte offset on disk (data_payload_start = 8 + header_size)
+    [[nodiscard]] size_t absolute_file_offset(const size_t header_size) const {
+        return 8 + header_size + data_begin;
+    }
 };
 
 static ggml_type parse_ggml_type(const std::string& dtype) {
