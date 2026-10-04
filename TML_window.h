@@ -1,95 +1,79 @@
-/*
- * Created by izak on 9/29/26.
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
- */
-
 #ifndef TOYML_TML_WINDOW_H
 #define TOYML_TML_WINDOW_H
 
 #include <imgui.h>
+#include <cstdio>
+#include <cstring>
+#include <cctype>
+#include <cmath>
+#include <future>
+#include <chrono>
 
-struct TML_window {
-    bool show_file_menu = true;
-    bool show_edit_menu = false;
+#include "TML_ggml.h"
 
-    bool show_simple_window = false;
-    bool show_another_simple_window = false;
+void show_layers(bool *p_open, const std::vector<SafeTensorInfo> &tensors);
 
-    bool show_demo_window = false;
-    bool show_another_window = false;
+struct TMLMainWindowData {
+    ImGuiIO &io;
+    TML_ggml &tml_ggml;
 
-    ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
+    bool show_layers = false;
+    bool show_inference_console = false;
+};
 
-    void render(const ImGuiIO& io) {
-        static float f = 0.0f;
-        static int counter = 0;
+namespace TML_window_ {
+    void show_main_window(ImGuiIO &io, TML_ggml &tml_ggml);
+}
 
-        ImGui::Begin("Hello, world!");                          // Create a window called "Hello, world!" and append into it.
+inline void TML_window_::show_main_window(ImGuiIO &io, TML_ggml &tml_ggml) {
+    IM_ASSERT(ImGui::GetCurrentContext() != nullptr && "Missing Dear ImGui context. Refer to examples app!");
+    IMGUI_CHECKVERSION();
 
-        ImGui::Text("This is some useful text.");               // Display some text (you can use a format strings too)
-        ImGui::Checkbox("Demo Window", &show_demo_window);      // Edit bools storing our window open/close state
-        ImGui::Checkbox("Another Window", &show_another_window);
+    static TMLMainWindowData main_window_data = {.io = io, .tml_ggml = tml_ggml};
 
-        ImGui::SliderFloat("float", &f, 0.0f, 1.0f);            // Edit 1 float using a slider from 0.0f to 1.0f
-        ImGui::ColorEdit3("clear color", reinterpret_cast<float *>(&clear_color)); // Edit 3 floats representing a color
-
-        if (ImGui::Button("Button"))                            // Buttons return true when clicked (most widgets return true when edited/activated)
-            counter++;
-        ImGui::SameLine();
-        ImGui::Text("counter = %d", counter);
-
-        ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
-        ImGui::End();
+    if (main_window_data.show_layers) { show_layers(&main_window_data.show_layers, tml_ggml.get_tensors()); }
 
 
-        if (show_demo_window)
-            ImGui::ShowDemoWindow(&show_demo_window);
+    static float f = 0.0f;
+    static int counter = 0;
+    auto clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
 
-        // 3. Show another simple window.
-        if (show_another_window)
-        {
-            ImGui::Begin("Another Window", &show_another_window);   // Pass a pointer to our bool variable (the window will have a closing button that will clear the bool when clicked)
-            ImGui::Text("Hello from another window!");
-            if (ImGui::Button("Close Me"))
-                show_another_window = false;
-            ImGui::End();
-        }
+    ImGui::Begin("Hello, world!");
 
-    }
+    ImGui::Checkbox("Show Layers", &main_window_data.show_layers);
+    ImGui::Checkbox("Inference Console", &main_window_data.show_inference_console);
 
-    void render_list(const std::vector<SafeTensorInfo>& items) {
-    if (items.empty()) {
+    ImGui::SliderFloat("float", &f, 0.0f, 1.0f);
+    ImGui::ColorEdit3("clear color", reinterpret_cast<float *>(&clear_color));
+
+    if (ImGui::Button("Button"))
+        counter++;
+    ImGui::SameLine();
+    ImGui::Text("counter = %d", counter);
+
+    ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
+    ImGui::End();
+}
+
+inline void show_layers(bool *p_open, const std::vector<SafeTensorInfo> &tensors) {
+    if (tensors.empty()) {
         ImGui::Text("No tensors available.");
         return;
     }
 
     static int item_selected_idx = 0;
 
-    // Bounds safety
-    if (item_selected_idx >= static_cast<int>(items.size())) {
+    if (item_selected_idx >= static_cast<int>(tensors.size())) {
         item_selected_idx = 0;
     }
 
-    // ListBox for selecting tensors
+    ImGui::Begin("Layers", p_open);
     if (ImGui::BeginListBox("##listbox_tensors", ImVec2(-FLT_MIN, 12 * ImGui::GetTextLineHeightWithSpacing()))) {
-        for (int n = 0; n < static_cast<int>(items.size()); n++) {
+        for (int n = 0; n < static_cast<int>(tensors.size()); n++) {
             const bool is_selected = (item_selected_idx == n);
-            if (ImGui::Selectable(items[n].name.c_str(), is_selected)) {
+            if (ImGui::Selectable(tensors[n].name.c_str(), is_selected)) {
                 item_selected_idx = n;
             }
-
             if (is_selected) {
                 ImGui::SetItemDefaultFocus();
             }
@@ -99,26 +83,22 @@ struct TML_window {
 
     ImGui::Separator();
 
-    // Selected Tensor Metadata Display
-    const auto& selected = items.at(item_selected_idx);
-
+    const auto &selected = tensors.at(item_selected_idx);
     ImGui::Text("Layer Name: %s", selected.name.c_str());
     ImGui::Spacing();
 
-    // Key-Value Property Table using ImGui Tables
-    if (ImGui::BeginTable("TensorDetails", 2, ImGuiTableFlags_BordersOuter | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit)) {
+    if (ImGui::BeginTable("TensorDetails", 2,
+                          ImGuiTableFlags_BordersOuter | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit)) {
         ImGui::TableSetupColumn("Property", ImGuiTableColumnFlags_WidthFixed, 130.0f);
         ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
         ImGui::TableHeadersRow();
 
-        // 1. Data Type
         ImGui::TableNextRow();
         ImGui::TableSetColumnIndex(0);
         ImGui::TextUnformatted("Data Type (dtype)");
         ImGui::TableSetColumnIndex(1);
         ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "%s", selected.dtype.c_str());
 
-        // 2. Tensor Shape
         ImGui::TableNextRow();
         ImGui::TableSetColumnIndex(0);
         ImGui::TextUnformatted("Shape");
@@ -131,20 +111,18 @@ struct TML_window {
         shape_str += "]";
         ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "%s", shape_str.c_str());
 
-        // 3. Total Element Count
         ImGui::TableNextRow();
         ImGui::TableSetColumnIndex(0);
         ImGui::TextUnformatted("Total Elements");
         ImGui::TableSetColumnIndex(1);
         ImGui::Text("%zu", selected.num_elements());
 
-        // 4. Memory Size
         ImGui::TableNextRow();
         ImGui::TableSetColumnIndex(0);
         ImGui::TextUnformatted("Memory Size");
         ImGui::TableSetColumnIndex(1);
-        const double bytes = static_cast<double>(selected.byte_length());
-        if (bytes >= 1024.0 * 1024.0) {
+        const auto bytes = static_cast<double>(selected.byte_length());
+        if (static_cast<double>(selected.byte_length()) >= 1024.0 * 1024.0) {
             ImGui::Text("%.2f MB (%zu bytes)", bytes / (1024.0 * 1024.0), selected.byte_length());
         } else if (bytes >= 1024.0) {
             ImGui::Text("%.2f KB (%zu bytes)", bytes / 1024.0, selected.byte_length());
@@ -152,7 +130,6 @@ struct TML_window {
             ImGui::Text("%zu bytes", selected.byte_length());
         }
 
-        // 5. File Offsets
         ImGui::TableNextRow();
         ImGui::TableSetColumnIndex(0);
         ImGui::TextUnformatted("File Offsets");
@@ -161,12 +138,8 @@ struct TML_window {
 
         ImGui::EndTable();
     }
+
+    ImGui::End();
 }
 
-
-    TML_window() = default;
-
-    ~TML_window() = default;
-};
-
-#endif //TOYML_TML_WINDOW_H
+#endif // TOYML_TML_WINDOW_H

@@ -16,6 +16,7 @@ find_package(Vulkan REQUIRED)
 set(GGML_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(GGML_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(GGML_VULKAN ON CACHE BOOL "" FORCE)  # Enable GGML Vulkan backend
+set(GGML_VULKAN_SHADERS_GEN OFF CACHE BOOL "" FORCE)
 
 # SDL3 Options
 set(SDL_SHARED OFF CACHE BOOL "" FORCE)
@@ -30,20 +31,11 @@ set(SDL_XSCREENSAVER OFF CACHE BOOL "" FORCE)
 set(SDL_X11_XSCRNSAVER OFF CACHE BOOL "" FORCE)
 set(SDL_WAYLAND OFF CACHE BOOL "" FORCE) # Added to skip Wayland XML generation
 
-set(GGML_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(GGML_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-set(GGML_VULKAN ON CACHE BOOL "" FORCE)
-# Prevent custom depfile shader generation warnings in Ninja
-set(GGML_VULKAN_SHADERS_GEN OFF CACHE BOOL "" FORCE)
-
-
-
 # -----------------------------------------------------------------------------
 # 3. Add Subdirectories
 # -----------------------------------------------------------------------------
 add_subdirectory(3rdParty/ggml EXCLUDE_FROM_ALL)
 add_subdirectory(3rdParty/SDL EXCLUDE_FROM_ALL)
-
 
 # -----------------------------------------------------------------------------
 # 4. Configure Dear ImGui Target (Vulkan + SDL3)
